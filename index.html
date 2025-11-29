@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Simple K-Means Demo (Age vs CGPA)</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      max-width: 1000px;
+    }
+    h1, h2 {
+      margin-bottom: 0.3rem;
+    }
+    small {
+      color: #555;
+    }
+    table {
+      border-collapse: collapse;
+      margin-bottom: 1rem;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 4px 6px;
+      text-align: center;
+    }
+    input[type="number"] {
+      width: 80px;
+    }
+    #controls {
+      margin: 10px 0;
+    }
+    #log {
+      white-space: pre-wrap;
+      background: #f7f7f7;
+      border: 1px solid #ccc;
+      padding: 10px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    #plotContainer {
+      margin-top: 20px;
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    #plot {
+      border: 1px solid #ccc;
+    }
+    .note {
+      font-size: 0.9rem;
+      color: #444;
+    }
+    button {
+      padding: 6px 12px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>K-Means Clustering Demo</h1>
+  <p class="note">
+    Contoh mudah untuk jelaskan bagaimana K-Means berfungsi menggunakan 2 pemboleh ubah:
+    <strong>Age</strong> dan <strong>CGPA</strong> dengan maksimum 5 rekod.
+  </p>
+
+  <h2>1. Masukkan Data (maksimum 5 rekod)</h2>
+  <small>Hanya nilai numerik dibenarkan. Baris kosong akan diabaikan.</small>
+  <table>
+    <thead>
+      <tr>
+        <th>Record</th>
+        <th>Age</th>
+        <th>CGPA</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td><input type="number" step="1" id="age1" /></td>
+        <td><input type="number" step="0.01" id="cgpa1" /></td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td><input type="number" step="1" id="age2" /></td>
+        <td><input type="number" step="0.01" id="cgpa2" /></td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td><input type="number" step="1" id="age3" /></td>
+        <td><input type="number" step="0.01" id="cgpa3" /></td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td><input type="number" step="1" id="age4" /></td>
+        <td><input type="number" step="0.01" id="cgpa4" /></td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td><input type="number" step="1" id="age5" /></td>
+        <td><input type="number" step="0.01" id="cgpa5" /></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div id="controls">
+    <label for="kInput">Number of clusters (k):</label>
+    <input type="number" id="kInput" min="1" max="5" value="2" />
+    <button onclick="runKMeans()">Run K-Means</button>
+    <button onclick="fillSample()">Fill Sample Data</button>
+  </div>
+
+  <h2>2. Iteration Log</h2>
+  <div id="log">(Output akan dipaparkan di sini selepas anda tekan "Run K-Means")</div>
+
+  <div id="plotContainer">
+    <div>
+      <h2>3. Plot Age vs CGPA</h2>
+      <canvas id="plot" width="450" height="350"></canvas><br/>
+      <small class="note">
+        Titik berwarna = rekod pelajar, bentuk bulat besar = centroid cluster.
+      </small>
+    </div>
+  </div>
+
+  <script>
+    function runKMeans() {
+      const points = [];
+      for (let i = 1; i <= 5; i++) {
+        const ageVal = document.getElementById("age" + i).value;
+        const cgpaVal = document.getElementById("cgpa" + i).value;
+        if (ageVal !== "" && cgpaVal !== "") {
+          points.push({
+            id: i,
+            x: parseFloat(ageVal),
+            y: parseFloat(cgpaVal)
+          });
+        }
+      }
+
+      if (points.length === 0) {
+        alert("Sila masukkan sekurang-kurangnya satu rekod.");
+        return;
+      }
+
+      let k = parseInt(document.getElementById("kInput").value, 10);
+      if (isNaN(k) || k < 1) {
+        alert("Nilai k tidak sah.");
+        return;
+      }
+      if (k > points.length) {
+        alert("k tidak boleh melebihi bilangan rekod (n = " + points.length + ").");
+        return;
+      }
+
+      // Initialise centroids by randomly picking k distinct points
+      const centroids = [];
+      const usedIndexes = new Set();
+      while (centroids.length < k) {
+        const idx = Math.floor(Math.random() * points.length);
+        if (!usedIndexes.has(idx)) {
+          usedIndexes.add(idx);
+          centroids.push({ x: points[idx].x, y: points[idx].y });
+        }
+      }
+
+      let assignments = new Array(points.length).fill(-1);
+      const logs = [];
+      const maxIter = 20;
+
+      for (let iter = 1; iter <= maxIter; iter++) {
+        let iterationLog = `=== Iteration ${iter} ===\n`;
+        const newAssignments = [];
+        // Assignment step
+        for (let i = 0; i < points.length; i++) {
+          const p = points[i];
+          let bestDist = Infinity;
+          let bestCluster = -1;
+
+          iterationLog += `Point ${p.id} (Age=${p.x}, CGPA=${p.y})\n`;
+          for (let c = 0; c < k; c++) {
+            const dist = euclidean(p, centroids[c]);
+            iterationLog += `  Distance to C${c} (${centroids[c].x.toFixed(2)}, ${centroids[c].y.toFixed(2)}): ${dist.toFixed(4)}\n`;
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestCluster = c;
+            }
+          }
+          iterationLog += `  -> Assigned to cluster C${bestCluster}\n\n`;
+          newAssignments[i] = bestCluster;
+        }
+
+        // Check for convergence (no change in assignments)
+        if (sameAssignments(assignments, newAssignments)) {
+          iterationLog += "No change in assignments. Algorithm has converged.\n";
+          logs.push(iterationLog);
+          assignments = newAssignments;
+          break;
+        }
+
+        assignments = newAssignments;
+
+        // Update step: recompute centroids
+        const sums = Array.from({ length: k }, () => ({ x: 0, y: 0, count: 0 }));
+        for (let i = 0; i < points.length; i++) {
+          const cluster = assignments[i];
+          sums[cluster].x += points[i].x;
+          sums[cluster].y += points[i].y;
+          sums[cluster].count += 1;
+        }
+
+        iterationLog += "Updated centroids:\n";
+        for (let c = 0; c < k; c++) {
+          if (sums[c].count === 0) {
+            // Handle empty cluster: reinitialise to a random point
+            const idx = Math.floor(Math.random() * points.length);
+            centroids[c] = { x: points[idx].x, y: points[idx].y };
+            iterationLog += `  C${c}: empty cluster, reinitialised to random point (${centroids[c].x.toFixed(2)}, ${centroids[c].y.toFixed(2)})\n`;
+          } else {
+            centroids[c].x = sums[c].x / sums[c].count;
+            centroids[c].y = sums[c].y / sums[c].count;
+            iterationLog += `  C${c}: (${centroids[c].x.toFixed(4)}, ${centroids[c].y.toFixed(4)}) with ${sums[c].count} point(s)\n`;
+          }
+        }
+
+        logs.push(iterationLog);
+      }
+
+      // Final summary
+      let summary = "\n=== Final Cluster Summary ===\n";
+      for (let c = 0; c < k; c++) {
+        summary += `Cluster C${c}:\n`;
+        for (let i = 0; i < points.length; i++) {
+          if (assignments[i] === c) {
+            summary += `  Point ${points[i].id} (Age=${points[i].x}, CGPA=${points[i].y})\n`;
+          }
+        }
+      }
+
+      document.getElementById("log").textContent = logs.join("\n") + summary;
+
+      drawPlot(points, centroids, assignments);
+    }
+
+    function euclidean(p, c) {
+      const dx = p.x - c.x;
+      const dy = p.y - c.y;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function sameAssignments(a, b) {
+      if (a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) return false;
+      }
+      return true;
+    }
+
+    // Simple scatter plot on canvas
+    function drawPlot(points, centroids, assignments) {
+      const canvas = document.getElementById("plot");
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (points.length === 0) return;
+
+      const padding = 30;
+      const xs = points.map(p => p.x);
+      const ys = points.map(p => p.y);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+
+      function scaleX(x) {
+        if (maxX === minX) return canvas.width / 2;
+        return padding + (x - minX) * (canvas.width - 2 * padding) / (maxX - minX);
+      }
+      function scaleY(y) {
+        if (maxY === minY) return canvas.height / 2;
+        // invert y-axis for canvas
+        return canvas.height - padding - (y - minY) * (canvas.height - 2 * padding) / (maxY - minY);
+      }
+
+      // axes
+      ctx.strokeStyle = "#aaa";
+      ctx.beginPath();
+      ctx.moveTo(padding, canvas.height - padding);
+      ctx.lineTo(canvas.width - padding, canvas.height - padding);
+      ctx.moveTo(padding, canvas.height - padding);
+      ctx.lineTo(padding, padding);
+      ctx.stroke();
+
+      ctx.fillStyle = "#000";
+      ctx.fillText("Age", canvas.width / 2, canvas.height - 8);
+      ctx.save();
+      ctx.translate(10, canvas.height / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText("CGPA", 0, 0);
+      ctx.restore();
+
+      const colors = ["#e41a1c","#377eb8","#4daf4a","#984ea3","#ff7f00"];
+
+      // draw points
+      for (let i = 0; i < points.length; i++) {
+        const p = points[i];
+        const x = scaleX(p.x);
+        const y = scaleY(p.y);
+        const cluster = assignments[i] ?? 0;
+        ctx.fillStyle = colors[cluster % colors.length];
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.fillStyle = "#000";
+        ctx.fillText(p.id, x + 6, y - 6);
+      }
+
+      // draw centroids
+      for (let c = 0; c < centroids.length; c++) {
+        const cen = centroids[c];
+        const x = scaleX(cen.x);
+        const y = scaleY(cen.y);
+        ctx.strokeStyle = colors[c % colors.length];
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, y, 9, 0, 2 * Math.PI);
+        ctx.stroke();
+        ctx.fillStyle = colors[c % colors.length];
+        ctx.fillText("C" + c, x + 10, y + 10);
+      }
+    }
+
+    // Optional helper: fill sample data for quick demo
+    function fillSample() {
+      const sample = [
+        { age: 20, cgpa: 3.8 },
+        { age: 22, cgpa: 2.9 },
+        { age: 21, cgpa: 3.4 },
+        { age: 23, cgpa: 2.5 },
+        { age: 24, cgpa: 3.7 }
+      ];
+      for (let i = 0; i < 5; i++) {
+        document.getElementById("age" + (i + 1)).value = sample[i].age;
+        document.getElementById("cgpa" + (i + 1)).value = sample[i].cgpa;
+      }
+    }
+  </script>
+</body>
+</html>
